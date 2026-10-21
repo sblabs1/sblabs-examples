@@ -1,0 +1,353 @@
+{
+  "name": "YouTube comments → AI theme summary → Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## YouTube comments → AI theme summary → Google Sheets\n\nPaste a YouTube video link into the form. The workflow collects the most-liked comments, asks an AI model to group them into themes (with tone, quotes and viewer questions), and appends one summary row per video to a Google Sheet.\n\n**Who it's for:** creators, marketers and product teams who want to know what viewers think without reading thousands of comments.\n\n### Setup (5 minutes)\n1. **Apify token:** create a free account at apify.com → Settings → API & Integrations. In the *Get comments* node, create a *Header Auth* credential: name `Authorization`, value `Bearer YOUR_TOKEN`.\n2. **AI model:** add your OpenAI credential to the chat model node (or swap it for Anthropic, Gemini or a local model).\n3. **Google Sheet:** create a sheet with headers `date, videoTitle, videoChannel, videoUrl, commentsAnalyzed, topComment, topCommentLikes, summary`, then pick it in the last node.\n4. Activate, open the form URL and paste a link.\n\n### Cost\nThe comments step uses the pay-per-result *YouTube Comments Scraper* on Apify (charged per comment delivered; Apify's free plan includes monthly credit). 200 comments cost a few cents.\n\n*Disclosure: the scraper is built by the template author.*",
+        "height": 620,
+        "width": 420
+      },
+      "id": "0a091f23-4512-42e8-89b7-8a109f9dc030",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Paste a video\nAny video, Short or live replay link. Choose how many top comments to analyze.",
+        "height": 300,
+        "width": 220,
+        "color": "7"
+      },
+      "id": "dec134f7-2e9b-4737-bd56-dbfca51fef99",
+      "name": "Step1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Get comments\nCalls the Apify Actor synchronously and returns one item per comment (text, likes, replies, creator hearts).",
+        "height": 300,
+        "width": 220,
+        "color": "7"
+      },
+      "id": "7e80273f-4f95-4a31-8660-629a8c6cd129",
+      "name": "Step2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        180,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Summarize\nKeeps the 300 most-liked comments and asks the model for themes, tone, questions and one next step.",
+        "height": 300,
+        "width": 420,
+        "color": "7"
+      },
+      "id": "b496772e-0694-4f3c-b64f-ee90bc9c8e19",
+      "name": "Step3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        460,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. Save\nOne row per video in your sheet.",
+        "height": 300,
+        "width": 420,
+        "color": "7"
+      },
+      "id": "d7f6cd39-e6f6-4745-b0f2-be8d638df0a0",
+      "name": "Step4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        940,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "What do viewers think?",
+        "formDescription": "Paste a YouTube video link to get an AI summary of its comments.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Video URL",
+              "placeholder": "https://www.youtube.com/watch?v=...",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Comments to analyze",
+              "fieldType": "number",
+              "placeholder": "200"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "78127971-f837-439c-8d41-856159ecc79b",
+      "name": "Paste a YouTube video",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -60,
+        40
+      ],
+      "webhookId": "9e9fd7ae-4132-49b0-a003-d5e1a505fe2c"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/sblabs~youtube-comments-scraper/run-sync-get-dataset-items?timeout=300",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"videos\": [\"{{ $json['Video URL'] }}\"],\n  \"maxComments\": {{ $json['Comments to analyze'] || 200 }},\n  \"sort\": \"top\",\n  \"includeReplies\": false\n}",
+        "options": {
+          "timeout": 310000
+        }
+      },
+      "id": "bf9fafa3-4538-42e7-beef-62b4b772631a",
+      "name": "Get comments (Apify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only real comments (error rows have status \"error\"), most-liked first\nconst rows = $input.all().map(i => i.json).filter(r => r.status === 'ok' && !r.isReply);\nif (!rows.length) {\n  const err = $input.first()?.json || {};\n  throw new Error(`No comments returned: ${err.errorMessage || err.error || 'check the video link'}`);\n}\nrows.sort((a, b) => (b.likes || 0) - (a.likes || 0));\nconst top = rows.slice(0, 300);\nconst lines = top.map(r => `- (${r.likes} likes${r.isHeartedByCreator ? ', hearted by creator' : ''}) ${String(r.text).replace(/\\s+/g, ' ').slice(0, 500)}`);\nconst v = rows[0];\nreturn [{ json: {\n  videoUrl: v.videoUrl,\n  videoTitle: v.videoTitle,\n  videoChannel: v.videoChannel,\n  commentsAnalyzed: top.length,\n  topComment: top[0].text.slice(0, 300),\n  topCommentLikes: top[0].likes,\n  commentList: lines.join('\\n'),\n}}];"
+      },
+      "id": "3ce0c7cd-566a-4773-9ac8-174d8b7dd50a",
+      "name": "Top comments + prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Below are the most-liked comments under the YouTube video \"{{ $json.videoTitle }}\" by {{ $json.videoChannel }}.\n\n1. Group them into 5-8 themes. For each theme give a short name, roughly how many comments fit it, the tone (positive, negative or mixed) and one short representative quote.\n2. List the 3 most common questions or requests viewers have.\n3. End with one sentence: what should the creator do next, based on these comments?\n\nKeep it under 350 words. Plain text, no markdown tables.\n\nComments:\n{{ $json.commentList }}"
+      },
+      "id": "bd9736d2-3b25-4244-a583-825d617e0bd0",
+      "name": "Summarize themes",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "5d1b1b7d-a2f2-4567-9315-5e60b9765aa3",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        700,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "22a6708f-4039-4ad1-8e9b-c7a896217d23",
+              "name": "date",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "f9ed73ac-23d4-4f5e-9e5b-0b0e0f322a63",
+              "name": "videoTitle",
+              "value": "={{ $('Top comments + prompt').item.json.videoTitle }}",
+              "type": "string"
+            },
+            {
+              "id": "f7ec5d24-2a5a-4c05-bc54-059e34ea55ce",
+              "name": "videoChannel",
+              "value": "={{ $('Top comments + prompt').item.json.videoChannel }}",
+              "type": "string"
+            },
+            {
+              "id": "d6e2929e-7afe-46ed-8d09-3ef6144e8d26",
+              "name": "videoUrl",
+              "value": "={{ $('Top comments + prompt').item.json.videoUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "9adb5c6e-91c1-4964-a957-e6cbcc9ec021",
+              "name": "commentsAnalyzed",
+              "value": "={{ $('Top comments + prompt').item.json.commentsAnalyzed }}",
+              "type": "number"
+            },
+            {
+              "id": "8adbbda4-4a27-41a8-b697-0c8273b86342",
+              "name": "topComment",
+              "value": "={{ $('Top comments + prompt').item.json.topComment }}",
+              "type": "string"
+            },
+            {
+              "id": "89e7e717-8b26-45c1-a5d6-63813ced8d31",
+              "name": "topCommentLikes",
+              "value": "={{ $('Top comments + prompt').item.json.topCommentLikes }}",
+              "type": "number"
+            },
+            {
+              "id": "7a42f2f5-109b-4838-af20-8245acc5ff8c",
+              "name": "summary",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d89a5484-c01c-47a0-9baf-7a85d2f82862",
+      "name": "Build row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1000,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "6b41eb65-ec00-49d5-a8b4-bf621ebc8211",
+      "name": "Append to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1200,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Paste a YouTube video": {
+      "main": [
+        [
+          {
+            "node": "Get comments (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get comments (Apify)": {
+      "main": [
+        [
+          {
+            "node": "Top comments + prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top comments + prompt": {
+      "main": [
+        [
+          {
+            "node": "Summarize themes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize themes": {
+      "main": [
+        [
+          {
+            "node": "Build row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build row": {
+      "main": [
+        [
+          {
+            "node": "Append to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summarize themes",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
